@@ -1,0 +1,145 @@
+---
+title: "Human Activity Recognition"
+author: "Venkadeshwaran K"
+date: "May 20, 2016"
+output: html_document
+keep_md : yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache= TRUE, message = FALSE)
+```
+
+## Objective
+
+This human activity recognition research has traditionally focused on discriminating between different activities, i.e. to predict "which" activity was performed at a specific point in time (like with the Daily Living Activities dataset above). The approach we propose for the Weight Lifting Exercises dataset is to investigate "how (well)" an activity was performed by the wearer. Samples were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). 
+
+## Data Loading
+
+The data is taken from the source [LES Groupware](http://groupware.les.inf.puc-rio.br/har). Lets us grab the data from the cloud.
+
+```{r data-loading}
+trainurl <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+testurl <- 'https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
+
+training <- read.csv(trainurl, na.strings = c('NA', "#DIV/0!", ""))
+testing <- read.csv(testurl, na.strings = c('NA', "#DIV/0!", ""))
+
+c(dim(training), dim(testing))
+```
+
+The training data has 19622 rows and the testing dataset has 20 records. Both the data set has 160 columns.
+
+## Data Processing
+
+### Filtering Columns
+
+Doing Exploratory data analysis on this data set with more columns will be very difficult. So let us do some prepreprocessing first. The NA data can not be processed in ML programs. So we can remove the columns with null values.
+
+```{r processing_1}
+library(caret)
+
+training <- training[, colSums(is.na(training))==0 ]
+testing <- testing[, colSums(is.na(testing)) == 0]
+
+
+## Extracting Classe field
+classe <- training$classe
+## Removing unwanted problem id column from testing data
+
+training <- training[, -c(1:7, 60) ] ## 60 - classe
+testing <- testing[, -c(1:7, 60)] ## 60 - problem_id 
+
+c(dim(training), dim(testing))
+
+```
+
+We have restricted 200 columns and still we may restrict few more with the None-Zero Varaince
+
+### Data Spliting
+
+We can split the train data into training data and Validate data with the .7 proportion. And we can proceed with the preProcessing 
+
+```{r data_spliting_1}
+set.seed(2708)
+inTrain <- createDataPartition(classe, p = 0.7, list = FALSE)
+
+train <- training[inTrain,]
+valid <- training[-inTrain,]
+
+## Saving the classe in separate vector
+train_classe <- classe[inTrain]
+valid_classe <- classe[-inTrain]
+
+```
+
+### PreProcessing
+
+We can preprocess the record with None-Zero Variance factor. This will help us to restrict the fields which are not much important to the prediction.
+
+```{r pre_processing}
+
+prepro <- preProcess(train, method = c('center','scale','nzv'))
+prepro
+```
+
+We will apply the preprocess directly in the train method
+
+## Prediction Modeling
+
+Since the Output is the factor varaible we can go with classification method. As the part of this experiment we will be using Tree and Random Forest.
+
+### Classification Tree Model
+
+In practice, k=5 or k=10 when doing k-fold cross validation. Here we consider 5-fold cross validation (default setting in trainControl function is 10 and default method='boost') when implementing the algorithm to save a little computing time. Since data transformations may be less important in non-linear models like classification trees, we do not transform any variables.
+
+```{r building_model}
+library(rpart)
+library(rattle)
+library(rpart.plot)
+ctrl <- trainControl(method = "cv", number = 5)
+fit_rpart <- train(train_classe ~ ., data = train, method = "rpart", 
+                   trControl = ctrl, preProcess=c('center','scale','nzv'))
+print(fit_rpart, digits = 4)
+fancyRpartPlot(fit_rpart$finalModel)
+
+# predict and Validate outcomes using validation set
+predict_rpart <- predict(fit_rpart, valid)
+# ConfusionMatrix to find the accuracy
+conf_rpart <- confusionMatrix(valid_classe, predict_rpart)
+conf_rpart
+accuracy_rpart <- conf_rpart$Overall[1]
+```
+
+The resultant outcome is very less. Lets hope the random forest will give better result.
+
+### RandomForest Model Building
+
+Random Forest will be more accurate to most of the datasets. If this also doesnt predict with accuracy then we shall go with the Combining model Prediction.
+
+```{r randomforest-fit}
+fit_rf <- train(train_classe ~ ., data = train, method = "rf", 
+                   trControl = ctrl, preProcess=c('center','scale','nzv'))
+print(fit_rf, digits = 4)
+```
+```{r randomforest-predict}
+plot(fit_rf)
+# predict and Validate outcomes using validation set
+predict_rf <- predict(fit_rf, valid)
+# ConfusionMatrix to find the accuracy
+conf_rf <- confusionMatrix(valid_classe, predict_rf)
+conf_rf
+accuracy_rf <- conf_rf$overall[1]
+accuracy_rf
+```
+
+The accuracy is 99% which is very high. But the random forest with take more computational time. 
+
+## Outcome Predicition on Test Data
+
+So on predicting the Validation dataset we find the randomforest model is very accurate. Lets apply the same on the test data.
+
+```{r test}
+predict(fit_rf, testing)
+
+```
